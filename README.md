@@ -70,7 +70,7 @@ ascii-art-justify/
 
 ```bash
 git clone <repository-url>
-cd ascii-art-justify
+cd ascii-art-cli
 ```
 
 Verify the installation by running:
