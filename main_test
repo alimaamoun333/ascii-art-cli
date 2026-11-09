@@ -1,0 +1,360 @@
+/*
+package main
+
+import (
+	"bytes"
+	"io"
+	"os"
+	"strings"
+	"testing"
+)
+
+// captureStdout captures stdout while executing the provided function.
+func captureStdout(f func()) string {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	outChan := make(chan string)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		outChan <- buf.String()
+	}()
+
+	f()
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+	return <-outChan
+}
+
+func TestRun_NormalMode(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "standard banner default",
+			args: []string{"ascii-art", "Hello"},
+		},
+		{
+			name: "custom shadow banner",
+			args: []string{"ascii-art", "Hello", "shadow"},
+		},
+		{
+			name: "custom thinkertoy banner",
+			args: []string{"ascii-art", "Hello", "thinkertoy"},
+		},
+		{
+			name: "multiline text with literal newline escape",
+			args: []string{"ascii-art", "Hello\\nWorld"},
+		},
+		{
+			name: "single newline character",
+			args: []string{"ascii-art", "\\n"},
+		},
+		{
+			name: "multiple newlines",
+			args: []string{"ascii-art", "\\n\\n"},
+		},
+		{
+			name: "special printable ASCII characters",
+			args: []string{"ascii-art", "123 !@#$%^&*()_+-="},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = tt.args
+
+			var err error
+			output := captureStdout(func() {
+				err = run()
+			})
+
+			if err != nil {
+				t.Fatalf("run() with args %v returned unexpected error: %v", tt.args, err)
+			}
+			if output == "" {
+				t.Fatalf("run() with args %v produced empty output", tt.args)
+			}
+		})
+	}
+}
+
+func TestRun_OutputMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		filename string
+	}{
+		{
+			name:     "output standard banner",
+			args:     []string{"ascii-art", "--output=test_main_standard.txt", "Hello"},
+			filename: "test_main_standard.txt",
+		},
+		{
+			name:     "output shadow banner",
+			args:     []string{"ascii-art", "--output=test_main_shadow.txt", "Hello", "shadow"},
+			filename: "test_main_shadow.txt",
+		},
+		{
+			name:     "output thinkertoy banner multiline",
+			args:     []string{"ascii-art", "--output=test_main_thinker.txt", "Hello\\nWorld", "thinkertoy"},
+			filename: "test_main_thinker.txt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer os.Remove(tt.filename)
+
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = tt.args
+
+			var err error
+			stdoutOutput := captureStdout(func() {
+				err = run()
+			})
+
+			if err != nil {
+				t.Fatalf("run() with args %v returned unexpected error: %v", tt.args, err)
+			}
+
+			// In output mode, stdout should be empty
+			if stdoutOutput != "" {
+				t.Errorf("expected empty stdout in output mode, got %q", stdoutOutput)
+			}
+
+			// Verify file was written
+			data, err := os.ReadFile(tt.filename)
+			if err != nil {
+				t.Fatalf("failed to read output file %s: %v", tt.filename, err)
+			}
+			if len(data) == 0 {
+				t.Errorf("output file %s is empty", tt.filename)
+			}
+		})
+	}
+}
+
+func TestRun_ColorMode(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		expectCode  string
+		expectReset string
+	}{
+		{
+			name:        "color whole text red",
+			args:        []string{"ascii-art", "--color=red", "Hello"},
+			expectCode:  "\033[31m",
+			expectReset: "\033[0m",
+		},
+		{
+			name:        "color substring green",
+			args:        []string{"ascii-art", "--color=green", "ell", "Hello"},
+			expectCode:  "\033[32m",
+			expectReset: "\033[0m",
+		},
+		{
+			name:        "color target flag with custom banner",
+			args:        []string{"ascii-art", "--color=blue", "--target=ll", "Hello", "shadow"},
+			expectCode:  "\033[34m",
+			expectReset: "\033[0m",
+		},
+		{
+			name:        "color multiline yellow",
+			args:        []string{"ascii-art", "--color=yellow", "Hello\\nWorld"},
+			expectCode:  "\033[33m",
+			expectReset: "\033[0m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = tt.args
+
+			var err error
+			output := captureStdout(func() {
+				err = run()
+			})
+
+			if err != nil {
+				t.Fatalf("run() with args %v returned unexpected error: %v", tt.args, err)
+			}
+			if !strings.Contains(output, tt.expectCode) {
+				t.Errorf("expected output to contain ANSI code %q, got output:\n%s", tt.expectCode, output)
+			}
+			if !strings.Contains(output, tt.expectReset) {
+				t.Errorf("expected output to contain ANSI reset code %q, got output:\n%s", tt.expectReset, output)
+			}
+		})
+	}
+}
+
+func TestRun_AlignMode(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "align center standard",
+			args: []string{"ascii-art", "--align=center", "Hello"},
+		},
+		{
+			name: "align left standard",
+			args: []string{"ascii-art", "--align=left", "Hello"},
+		},
+		{
+			name: "align right standard",
+			args: []string{"ascii-art", "--align=right", "Hello"},
+		},
+		{
+			name: "align justify standard",
+			args: []string{"ascii-art", "--align=justify", "Hello World"},
+		},
+		{
+			name: "align right shadow",
+			args: []string{"ascii-art", "--align=right", "Hello", "shadow"},
+		},
+		{
+			name: "align center multiline",
+			args: []string{"ascii-art", "--align=center", "Hello\\nWorld", "thinkertoy"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = tt.args
+
+			var err error
+			output := captureStdout(func() {
+				err = run()
+			})
+
+			if err != nil {
+				t.Fatalf("run() with args %v returned unexpected error: %v", tt.args, err)
+			}
+			if output == "" {
+				t.Fatalf("run() with args %v produced empty output", tt.args)
+			}
+		})
+	}
+}
+
+func TestRun_Errors(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		errContains string
+	}{
+		{
+			name:        "no arguments provided",
+			args:        []string{"ascii-art"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "unknown banner in normal mode",
+			args:        []string{"ascii-art", "Hello", "unknown_banner"},
+			errContains: "unsupported banner",
+		},
+		{
+			name:        "unsupported color in color mode",
+			args:        []string{"ascii-art", "--color=magenta_glow", "Hello"},
+			errContains: "invalid or unsupported request color: magenta_glow",
+		},
+		{
+			name:        "invalid alignment type",
+			args:        []string{"ascii-art", "--align=diagonal", "Hello"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "invalid output filename extension",
+			args:        []string{"ascii-art", "--output=test.pdf", "Hello"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "unsupported non-printable ASCII character",
+			args:        []string{"ascii-art", "Hello\x01World"},
+			errContains: "character does not exist",
+		},
+		{
+			name:        "missing text in color mode",
+			args:        []string{"ascii-art", "--color=red"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "missing text in output mode",
+			args:        []string{"ascii-art", "--output=valid.txt"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "missing text in align mode",
+			args:        []string{"ascii-art", "--align=center"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "color mode missing target prefix for 3 args",
+			args:        []string{"ascii-art", "--color=red", "no_target_prefix", "Hello", "shadow"},
+			errContains: "Usage:",
+		},
+		{
+			name:        "too many arguments in normal mode",
+			args:        []string{"ascii-art", "Hello", "shadow", "extra"},
+			errContains: "Usage:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = tt.args
+
+			err := run()
+			if err == nil {
+				t.Fatalf("run() with args %v expected error, got nil", tt.args)
+			}
+			if !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("run() error %q does not contain expected substring %q", err.Error(), tt.errContains)
+			}
+		})
+	}
+}
+
+func TestMain_Success(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"ascii-art", "Hello"}
+
+	output := captureStdout(func() {
+		main()
+	})
+
+	if output == "" {
+		t.Errorf("main() expected non-empty output, got empty string")
+	}
+}
+
+func TestMain_Error(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"ascii-art"}
+
+	output := captureStdout(func() {
+		main()
+	})
+
+	if !strings.Contains(output, "Usage:") {
+		t.Errorf("main() expected output to contain usage guide on error, got %q", output)
+	}
+}
